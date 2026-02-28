@@ -15,13 +15,6 @@
 #include <utility>
 #include <variant>
 
-typedef int ImReflInputFlags;
-
-enum ImReflInputFlags_ {
-    ImReflInputFlags_None           = 0,
-    ImReflInputFlags_DefaultOpen    = 1 << 0,
-};
-
 namespace ImRefl {
 
 struct Ignore {};
@@ -84,16 +77,7 @@ struct ImGuiID
 
 struct Config
 {
-    ImReflInputFlags input_flags = 0;
-
-    bool in_line         = false;
-    bool non_resizable   = false;
-    bool color           = false;
-    bool color_wheel     = false;
-    bool radio           = false;
-    bool is_string       = false; // used for formatting char buffers
-
-    std::variant<Normal, Slider, Drag> scalar_style = Normal{};
+    std::meta::info self = {};
 };
 
 // Magic spell to make writing a variant visitor nicer.
@@ -197,89 +181,145 @@ consteval auto num_type()
     throw "unknown floating point size";
 }
 
-// Ensures that the given meta::info has exactly one of the scalar
-// visual styles, or none.
-consteval bool check_scalar_style(std::meta::info info)
+// Forward decls
+
+template <Config config, typename T>
+bool Render(const char* name, T& val);
+
+template <Config config, typename T>
+bool Render(const char* name, const T& val);
+
+template <Config config, scoped_enum T>
+bool Render(const char* name, T& value);
+
+template <Config config, scoped_enum T>
+bool Render(const char* name, const T& value);
+
+template <Config config, scalar T>
+bool Render(const char* name, T& val);
+
+template <Config config, scalar T>
+bool Render(const char* name, const T& val);
+
+// Don't need const versions of these since the const scalar
+// overload will delegate to them instead.
+template <Config config>
+bool Render(const char* name, char& c);
+
+template <Config config>
+bool Render(const char* name, long double& x);
+
+template <Config config>
+bool Render(const char* name, bool& value);
+
+template <Config config, typename T>
+bool Render(const char* name, std::span<T> arr);
+
+template <Config config, typename T>
+bool Render(const char* name, std::span<const T> arr);
+
+template <Config config, typename T, std::size_t N> requires (N > 0)
+bool Render(const char* name, T (&arr)[N]);
+
+template <Config config, typename T, std::size_t N> requires (N > 0)
+bool Render(const char* name, const T (&arr)[N]);
+
+template <Config config, typename T, std::size_t N> requires (N > 0)
+bool Render(const char* name, std::array<T, N>& arr);
+
+template <Config config, typename T, std::size_t N> requires (N > 0)
+bool Render(const char* name, const std::array<T, N>& arr);
+
+template <Config config, std::ranges::forward_range R>
+bool Render(const char* name, R& range);
+
+template <Config config, std::ranges::forward_range R>
+bool Render(const char* name, const R& range);
+
+template <Config config>
+bool Render(const char* name, std::string& value);
+
+template <Config config>
+bool Render(const char* name, const std::string& value);
+
+#ifdef IMREFL_GLM
+template <Config config, int Size, scalar T, glm::qualifier Qual>
+bool Render(const char* name, glm::vec<Size, T, Qual>& value);
+
+template <Config config, int Size, scalar T, glm::qualifier Qual>
+bool Render(const char* name, const glm::vec<Size, T, Qual>& value);
+#endif
+
+template <Config config, typename L, typename R>
+bool Render(const char* name, std::pair<L, R>& value);
+
+template <Config config, typename L, typename R>
+bool Render(const char* name, const std::pair<L, R>& value);
+
+template <Config config, typename T>
+bool Render(const char* name, std::optional<T>& value);
+
+template <Config config, typename T>
+bool Render(const char* name, const std::optional<T>& value);
+
+template <Config config, typename... Ts>
+bool Render(const char* name, std::variant<Ts...>& value);
+
+template <Config config, typename... Ts>
+bool Render(const char* name, const std::variant<Ts...>& value);
+
+template <Config config, typename T, typename Deleter>
+bool Render(const char* name, std::unique_ptr<T, Deleter>& value);
+
+template <Config config, typename T, typename Deleter>
+bool Render(const char* name, const std::unique_ptr<T, Deleter>& value);
+
+template <Config config, typename T>
+bool Render(const char* name, std::shared_ptr<T>& value);
+
+template <Config config, typename T>
+bool Render(const char* name, const std::shared_ptr<T>& value);
+
+template <Config config, typename T>
+bool Render(const char* name, std::weak_ptr<T>& value);
+
+template <Config config, typename T>
+bool Render(const char* name, const std::weak_ptr<T>& value);
+
+template <Config config, aggregate T>
+bool Render(const char* name, T& x);
+
+template <Config config, aggregate T>
+bool Render(const char* name, const T& x);
+
+// End of forward decls
+
+inline bool TreeNodeExNoDisable(const char* label)
 {
-    std::size_t style_count = 0;
-    if (has_annotation<Normal>(info)) { ++style_count; }
-    if (has_annotation<Slider>(info)) { ++style_count; }
-    if (has_annotation<Drag>(info))   { ++style_count; }
-    return style_count < 2;
-}
-
-template <std::meta::info info>
-constexpr Config get_config()
-{
-    static_assert(check_scalar_style(info), "too many visual styles given for scalar type");
-
-    Config config;
-    if constexpr (constexpr auto style = fetch_annotation<Normal>(info)) {
-        config.scalar_style = *style;
-    }
-    if constexpr (constexpr auto style = fetch_annotation<Slider>(info)) {
-        config.scalar_style = *style;
-    }
-    if constexpr (constexpr auto style = fetch_annotation<Drag>(info)) {
-        config.scalar_style = *style;
-    }
-    if constexpr (has_annotation<InLine>(info)) {
-        config.in_line = true;
-    }
-    if constexpr (has_annotation<NonResizable>(info)) {
-        config.non_resizable = true;
-    }
-    if constexpr (has_annotation<ColorWheel>(info)) {
-        config.color_wheel = true;
-    }
-    if constexpr (has_annotation<Color>(info)) {
-        config.color = true;
-    }
-    if constexpr (has_annotation<Radio>(info)) {
-        config.radio = true;
-    }
-    if constexpr (has_annotation<String>(info)) {
-        config.is_string = true;
-    }
-
-    return config;
-}
-
-constexpr ImGuiTreeNodeFlags get_tree_node_flags(ImReflInputFlags input_flags)
-{
-    ImGuiTreeNodeFlags tree_node_flags = 0;
-    tree_node_flags |= (input_flags & ImReflInputFlags_DefaultOpen) ? ImGuiTreeNodeFlags_DefaultOpen : 0;
-    return tree_node_flags;
-}
-
-inline bool TreeNodeExNoDisable(const char* label, ImGuiTreeNodeFlags flags)
-{
+    const int flags = ImGuiTreeNodeFlags_DefaultOpen;
     const int disabled_levels = ImGui::GetCurrentContext()->DisabledStackSize;
     for (int i = 0; i != disabled_levels; ++i) { ImGui::EndDisabled(); }
-    bool open = ImGui::TreeNodeEx(label, flags);
+    const bool open = ImGui::TreeNodeEx(label, flags);
     for (int i = 0; i != disabled_levels; ++i) { ImGui::BeginDisabled(); }
     return open;
 }
 
-template <std::ranges::forward_range R>
-bool RenderForwardRange(const char* name, R& range, const Config& config)
+template <Config config, std::ranges::forward_range R>
+bool RenderForwardRange(const char* name, R& range)
 {
     ImGuiID id{name};
     bool changed = false;
-    if (TreeNodeExNoDisable(name, get_tree_node_flags(config.input_flags))) {
-        if (!config.non_resizable) {
+    if (TreeNodeExNoDisable(name)) {
+        if constexpr (!has_annotation<NonResizable>(config.self) && can_push_pop_front<R>) {
+            ImGuiID id{"front"};
             const float button_size = ImGui::GetFrameHeight();
             const ImGuiStyle& style = ImGui::GetStyle();
-
-            if constexpr (can_push_pop_front<R>) {
-                ImGuiID id{"front"};
-                if (ImGui::Button("-", {button_size, button_size}) && !range.empty()) {
-                    range.pop_front();
-                }
-                ImGui::SameLine(0, style.ItemInnerSpacing.x);
-                if (ImGui::Button("+", {button_size, button_size})) {
-                    range.emplace_front();
-                }
+            if (ImGui::Button("-", {button_size, button_size}) && !range.empty()) {
+                range.pop_front();
+            }
+            ImGui::SameLine(0, style.ItemInnerSpacing.x);
+            if (ImGui::Button("+", {button_size, button_size})) {
+                range.emplace_front();
             }
         }
 
@@ -288,7 +328,7 @@ bool RenderForwardRange(const char* name, R& range, const Config& config)
             ImGuiID id(i);
             const std::string index_name = std::format("[{}]", i);
             if constexpr (std::ranges::random_access_range<R>) {
-                changed = Render("", element, config) || changed;
+                changed = Render<config>("", element) || changed;
                 ImGui::SameLine();
                 ImGui::Selectable(index_name.c_str());
                 if (ImGui::BeginDragDropSource()) {
@@ -306,24 +346,21 @@ bool RenderForwardRange(const char* name, R& range, const Config& config)
                 }
             }
             else {
-                changed = Render(index_name.c_str(), element, config) || changed;
+                changed = Render<config>(index_name.c_str(), element) || changed;
             }
             ++i;
         }
 
-        if (!config.non_resizable) {
+        if constexpr (!has_annotation<NonResizable>(config.self) && can_push_pop_back<R>) {
+            ImGuiID id{"back"};
             const float button_size = ImGui::GetFrameHeight();
             const ImGuiStyle& style = ImGui::GetStyle();
-            
-            if constexpr (can_push_pop_back<R>) {
-                ImGuiID id{"back"};
-                if (ImGui::Button("-", {button_size, button_size}) && !range.empty()) {
-                    range.pop_back();
-                }
-                ImGui::SameLine(0, style.ItemInnerSpacing.x);
-                if (ImGui::Button("+", {button_size, button_size})) {
-                    range.emplace_back();
-                }
+            if (ImGui::Button("-", {button_size, button_size}) && !range.empty()) {
+                range.pop_back();
+            }
+            ImGui::SameLine(0, style.ItemInnerSpacing.x);
+            if (ImGui::Button("+", {button_size, button_size})) {
+                range.emplace_back();
             }
         }
 
@@ -332,14 +369,14 @@ bool RenderForwardRange(const char* name, R& range, const Config& config)
     return changed;
 }
 
-template <std::ranges::forward_range R>
-bool RenderForwardRange(const char* name, const R& range, const Config& config)
+template <Config config, std::ranges::forward_range R>
+bool RenderForwardRange(const char* name, const R& range)
 {
     ImGuiID id{name};
-    if (TreeNodeExNoDisable(name, get_tree_node_flags(config.input_flags))) {
+    if (TreeNodeExNoDisable(name)) {
         size_t i = 0;
         for (auto& element : range) {
-            Render(std::format("[{}]", i).c_str(), element, config); 
+            Render<config>(std::format("[{}]", i).c_str(), element); 
             ++i;
         }
         ImGui::TreePop();
@@ -347,49 +384,57 @@ bool RenderForwardRange(const char* name, const R& range, const Config& config)
     return false; 
 }
 
-template <scalar T>
-bool RenderScalarN(const char* name, T* val, std::size_t count, const Config& config)
+consteval bool check_scalar_style(std::meta::info info)
 {
-    const auto visitor = overloaded{
-        [&](Normal) {
-            const T step = 1; // Only used for integral types
-            return ImGui::InputScalarN(name, num_type<T>(), val, count, &step);
-        },
-        [&](Slider slider) {
-            const auto min = static_cast<T>(slider.min);
-            const auto max = static_cast<T>(slider.max);
-            return ImGui::SliderScalarN(name, num_type<T>(), val, count, &min, &max);
-        },
-        [&](Drag drag) {
-            const auto min = static_cast<T>(drag.min);
-            const auto max = static_cast<T>(drag.max);
-            const auto speed = drag.speed;
-            return ImGui::DragScalarN(name, num_type<T>(), val, count, speed, &min, &max);
-        }
-    };
-    return std::visit(visitor, config.scalar_style);
+    std::size_t count = 0;
+    if (has_annotation<Normal>(info)) { ++count; }
+    if (has_annotation<Slider>(info)) { ++count; }
+    if (has_annotation<Drag>(info))   { ++count; }
+    return count < 2;
+}
+
+template <Config config, scalar T>
+bool RenderScalarN(const char* name, T* val, std::size_t count)
+{
+    static_assert(check_scalar_style(config.self), "too many visual styles given for scalar type");
+
+    if constexpr (constexpr auto style = fetch_annotation<Slider>(config.self)) {
+        const auto min = static_cast<T>(style->min);
+        const auto max = static_cast<T>(style->max);
+        return ImGui::SliderScalarN(name, num_type<T>(), val, count, &min, &max);
+    }
+    else if constexpr (constexpr auto style = fetch_annotation<Drag>(config.self)) {
+        const auto min = static_cast<T>(style->min);
+        const auto max = static_cast<T>(style->max);
+        const auto speed = style->speed;
+        return ImGui::DragScalarN(name, num_type<T>(), val, count, speed, &min, &max);
+    }
+    else {
+        const T step = 1; // Only used for integral types
+        return ImGui::InputScalarN(name, num_type<T>(), val, count, &step);
+    }
 }
 
 // A helper function that renders a const variable by making a mutable
 // copy and calling the mutable overload for Render.
-template <typename T>
-bool DelegateToNonConst(const char* name, const T& value, const Config& config)
+template <Config config, typename T>
+bool DelegateToNonConst(const char* name, const T& value)
 {
     T mutable_value = value;
     ImGui::BeginDisabled();
-    Render(name, mutable_value, config);
+    Render<config>(name, mutable_value);
     ImGui::EndDisabled();
     return false;
 }
 
-template <scalar T>
-bool RenderScalarN(const char* name, const T* val, std::size_t count, const Config& config)
+template <Config config, scalar T>
+bool RenderScalarN(const char* name, const T* val, std::size_t count)
 {
     ImGui::BeginGroup();
     ImGui::PushMultiItemsWidths(count, ImGui::CalcItemWidth());
     for (std::size_t i = 0; i != count; ++i) {
         ImGuiID id{i};
-        Render("", val[i], config);
+        Render<config>("", val[i]);
         ImGui::PopItemWidth();
         ImGui::SameLine(0, ImGui::GetStyle().ItemInnerSpacing.x);
     }
@@ -398,117 +443,12 @@ bool RenderScalarN(const char* name, const T* val, std::size_t count, const Conf
     return false;
 }
 
-// Forward decls
-
-template <typename T>
-bool Render(const char* name, T& val, const Config& config);
-
-template <typename T>
-bool Render(const char* name, const T& val, const Config& config);
-
-template <scoped_enum T>
-bool Render(const char* name, T& value, const Config& config);
-
-template <scoped_enum T>
-bool Render(const char* name, const T& value, const Config& config);
-
-template <scalar T>
-bool Render(const char* name, T& val, const Config& config);
-
-template <scalar T>
-bool Render(const char* name, const T& val, const Config& config);
-
-// Don't need const versions of these since the const scalar
-// overload will delegate to them instead.
-bool Render(const char* name, char& c, const Config& config);
-bool Render(const char* name, long double& x, const Config& config);
-bool Render(const char* name, bool& value, const Config& config);
-
-template <typename T>
-bool Render(const char* name, std::span<T> arr, const Config& config);
-
-template <typename T>
-bool Render(const char* name, std::span<const T> arr, const Config& config);
-
-template <typename T, std::size_t N> requires (N > 0)
-bool Render(const char* name, T (&arr)[N], const Config& config);
-
-template <typename T, std::size_t N> requires (N > 0)
-bool Render(const char* name, const T (&arr)[N], const Config& config);
-
-template <typename T, std::size_t N> requires (N > 0)
-bool Render(const char* name, std::array<T, N>& arr, const Config& config);
-
-template <typename T, std::size_t N> requires (N > 0)
-bool Render(const char* name, const std::array<T, N>& arr, const Config& config);
-
-template <std::ranges::forward_range R>
-bool Render(const char* name, R& range, const Config& config);
-
-template <std::ranges::forward_range R>
-bool Render(const char* name, const R& range, const Config& config);
-
-bool Render(const char* name, std::string& value, const Config& config);
-bool Render(const char* name, const std::string& value, const Config& config);
-
-#ifdef IMREFL_GLM
-template <int Size, scalar T, glm::qualifier Qual>
-bool Render(const char* name, glm::vec<Size, T, Qual>& value, const Config& config);
-
-template <int Size, scalar T, glm::qualifier Qual>
-bool Render(const char* name, const glm::vec<Size, T, Qual>& value, const Config& config);
-#endif
-
-template <typename L, typename R>
-bool Render(const char* name, std::pair<L, R>& value, const Config& config);
-
-template <typename L, typename R>
-bool Render(const char* name, const std::pair<L, R>& value, const Config& config);
-
-template <typename T>
-bool Render(const char* name, std::optional<T>& value, const Config& config);
-
-template <typename T>
-bool Render(const char* name, const std::optional<T>& value, const Config& config);
-
-template <typename... Ts>
-bool Render(const char* name, std::variant<Ts...>& value, const Config& config);
-
-template <typename... Ts>
-bool Render(const char* name, const std::variant<Ts...>& value, const Config& config);
-
-template <typename T, typename Deleter>
-bool Render(const char* name, std::unique_ptr<T, Deleter>& value, const Config& config);
-
-template <typename T, typename Deleter>
-bool Render(const char* name, const std::unique_ptr<T, Deleter>& value, const Config& config);
-
-template <typename T>
-bool Render(const char* name, std::shared_ptr<T>& value, const Config& config);
-
-template <typename T>
-bool Render(const char* name, const std::shared_ptr<T>& value, const Config& config);
-
-template <typename T>
-bool Render(const char* name, std::weak_ptr<T>& value, const Config& config);
-
-template <typename T>
-bool Render(const char* name, const std::weak_ptr<T>& value, const Config& config);
-
-template <aggregate T>
-bool Render(const char* name, T& x, const Config& config);
-
-template <aggregate T>
-bool Render(const char* name, const T& x, const Config& config);
-
-// End of forward decls
-
-template <scoped_enum T>
-bool Render(const char* name, T& value, const Config& config)
+template <Config config, scoped_enum T>
+bool Render(const char* name, T& value)
 {
     ImGuiID guard{name};
     bool changed = false;
-    if (config.radio) {
+    if constexpr (has_annotation<Radio>(config.self)) {
         ImGui::Text("%s", name);
         template for (constexpr auto e : enums_of<T>()) {
             constexpr auto enum_name = std::meta::identifier_of(e);
@@ -534,26 +474,27 @@ bool Render(const char* name, T& value, const Config& config)
     return changed;
 }
 
-template <scoped_enum T>
-bool Render(const char* name, const T& value, const Config& config)
+template <Config config, scoped_enum T>
+bool Render(const char* name, const T& value)
 {
-    return DelegateToNonConst(name, value, config);
+    return DelegateToNonConst<config>(name, value);
 }
 
-template <scalar T>
-bool Render(const char* name, T& val, const Config& config)
+template <Config config, scalar T>
+bool Render(const char* name, T& val)
 {
-    return RenderScalarN(name, &val, 1, config);
+    return RenderScalarN<config>(name, &val, 1);
 }
 
-template <scalar T>
-bool Render(const char* name, const T& val, const Config& config)
+template <Config config, scalar T>
+bool Render(const char* name, const T& val)
 {
-    return DelegateToNonConst(name, val, config);
+    return DelegateToNonConst<config>(name, val);
 }
 
 // Treat char as a single character string, rather than an integral
-bool Render(const char* name, char& c, const Config& config)
+template <Config config>
+bool Render(const char* name, char& c)
 {
     char buffer[2] = {c, '\0'};
     if (ImGui::InputText(name, buffer, sizeof(buffer))) {
@@ -565,50 +506,51 @@ bool Render(const char* name, char& c, const Config& config)
 
 // ImGui does not support long double out of the box, but double
 // precision is almost certainly fine for UI debugging
-bool Render(const char* name, long double& x, const Config& config)
+template <Config config>
+bool Render(const char* name, long double& x)
 {
     double temp = static_cast<double>(x);
-    if (Render(name, temp, config)) {
+    if (Render<config>(name, temp)) {
         x = temp;
         return true;
     }
     return false;
 }
 
-bool Render(const char* name, bool& value, const Config& config)
+template <Config config>
+bool Render(const char* name, bool& value)
 {
     return ImGui::Checkbox(name, &value);
 }
 
-bool Render(const char* name, const bool& value, const Config& config)
+template <Config config>
+bool Render(const char* name, const bool& value)
 {
-    return DelegateToNonConst(name, value, config);
+    return DelegateToNonConst<config>(name, value);
 }
 
-template <typename T>
-bool Render(const char* name, std::span<T> arr, const Config& config)
+template <Config config, typename T>
+bool Render(const char* name, std::span<T> arr)
 {
     // Chars arrays to be treated as string buffers.
-    if constexpr (^^T == ^^char) {
-        if (config.is_string) {
-            return ImGui::InputText(name, arr.data(), arr.size());
-        }
+    if constexpr ((^^T == ^^char) && has_annotation<String>(config.self)) {
+        return ImGui::InputText(name, arr.data(), arr.size());
     }
     
     // Float arrays of size 3 and 4 can be treated as colors 
     if constexpr (^^T == ^^float) {
         switch (arr.size()) {
             case 3: {
-                if (config.color_wheel) {
+                if constexpr (has_annotation<ColorWheel>(config.self)) {
                     return ImGui::ColorPicker3(name, arr.data());
-                } else if (config.color) {
+                } else if constexpr (has_annotation<Color>(config.self)) {
                     return ImGui::ColorEdit3(name, arr.data());
                 }
             } break;
             case 4: {
-                if (config.color_wheel) {
+                if constexpr (has_annotation<ColorWheel>(config.self)) {
                     return ImGui::ColorPicker4(name, arr.data());
-                } else if (config.color) {
+                } else if constexpr (has_annotation<Color>(config.self)) {
                     return ImGui::ColorEdit4(name, arr.data());
                 }
             } break;
@@ -616,26 +558,22 @@ bool Render(const char* name, std::span<T> arr, const Config& config)
     }
 
     // scalar spans can be rendered in a single line if specified.
-    if constexpr (scalar<T>) {
-        if (config.in_line) {
-            return RenderScalarN(name, arr.data(), arr.size(), config);
-        }
+    if constexpr (scalar<T> && has_annotation<InLine>(config.self)) {
+        return RenderScalarN<config>(name, arr.data(), arr.size());
     }
 
-    return RenderForwardRange(name, arr, config);
+    return RenderForwardRange<config>(name, arr);
 }
 
-template <typename T>
-bool Render(const char* name, std::span<const T> arr, const Config& config)
+template <Config config, typename T>
+bool Render(const char* name, std::span<const T> arr)
 {
     // Chars arrays to be treated as string buffers.
-    if constexpr (^^T == ^^char) {
-        if (config.is_string) {
-            ImGui::Text("%s: ", name);
-            ImGui::SameLine();
-            ImGui::TextUnformatted(arr.data(), arr.data() + arr.size());
-            return false;
-        }
+    if constexpr ((^^T == ^^char) && has_annotation<String>(config.self)) {
+        ImGui::Text("%s: ", name);
+        ImGui::SameLine();
+        ImGui::TextUnformatted(arr.data(), arr.data() + arr.size());
+        return false;
     }
     
     // Float arrays of size 3 and 4 can be treated as colors 
@@ -644,63 +582,62 @@ bool Render(const char* name, std::span<const T> arr, const Config& config)
             float copy[4] = {};
             std::copy(arr.begin(), arr.end(), std::begin(copy));
             ImGui::BeginDisabled();
-            Render(name, std::span{copy, arr.size()}, config);
+            Render<config>(name, std::span{copy, arr.size()});
             ImGui::EndDisabled();
             return false;
         }
     }
 
     // scalar spans can be rendered in a single line if specified.
-    if constexpr (scalar<T>) {
-        if (config.in_line) {
-            return RenderScalarN(name, arr.data(), arr.size(), config);
-        }
+    if constexpr (scalar<T> && has_annotation<InLine>(config.self)) {
+        return RenderScalarNi<config>(name, arr.data(), arr.size());
     }
 
-    return RenderForwardRange(name, arr, config);
+    return RenderForwardRange<config>(name, arr);
 }
 
-template <typename T, std::size_t N>
+template <Config config, typename T, std::size_t N>
     requires (N > 0)
-bool Render(const char* name, T (&arr)[N], const Config& config)
+bool Render(const char* name, T (&arr)[N])
 {
-    return Render(name, std::span<T>{arr, N}, config);
+    return Render<config>(name, std::span<T>{arr, N});
 }
 
-template <typename T, std::size_t N>
+template <Config config, typename T, std::size_t N>
     requires (N > 0)
-bool Render(const char* name, const T (&arr)[N], const Config& config)
+bool Render(const char* name, const T (&arr)[N])
 {
-    return Render(name, std::span<const T>{arr, N}, config);
+    return Render<config>(name, std::span<const T>{arr, N});
 }
 
-template <typename T, std::size_t N>
+template <Config config, typename T, std::size_t N>
     requires (N > 0)
-bool Render(const char* name, std::array<T, N>& arr, const Config& config)
+bool Render(const char* name, std::array<T, N>& arr)
 {
-    return Render(name, std::span<T>{arr}, config);
+    return Render<config>(name, std::span<T>{arr});
 }
 
-template <typename T, std::size_t N>
+template <Config config, typename T, std::size_t N>
     requires (N > 0)
-bool Render(const char* name, const std::array<T, N>& arr, const Config& config)
+bool Render(const char* name, const std::array<T, N>& arr)
 {
-    return Render(name, std::span<const T>{arr}, config);
+    return Render<config>(name, std::span<const T>{arr});
 }
 
-template <std::ranges::forward_range R>
-bool Render(const char* name, R& range, const Config& config)
+template <Config config, std::ranges::forward_range R>
+bool Render(const char* name, R& range)
 {
-    return RenderForwardRange(name, range, config);
+    return RenderForwardRange<config>(name, range);
 }
 
-template <std::ranges::forward_range R>
-bool Render(const char* name, const R& range, const Config& config)
+template <Config config, std::ranges::forward_range R>
+bool Render(const char* name, const R& range)
 {
-    return RenderForwardRange(name, range, config);
+    return RenderForwardRange<config>(name, range);
 }
 
-bool Render(const char* name, std::string& value, const Config& config)
+template <Config config>
+bool Render(const char* name, std::string& value)
 {
     auto callback = [](ImGuiInputTextCallbackData* data) -> int {
         if (data->EventFlag == ImGuiInputTextFlags_CallbackResize) {
@@ -720,48 +657,49 @@ bool Render(const char* name, std::string& value, const Config& config)
     );
 }
 
-bool Render(const char* name, const std::string& value, const Config& config)
+template <Config config>
+bool Render(const char* name, const std::string& value)
 {
     ImGui::Text("%s: %s", name, value.c_str());
     return false;
 }
 
 #ifdef IMREFL_GLM
-template <int Size, scalar T, glm::qualifier Qual>
-bool Render(const char* name, glm::vec<Size, T, Qual>& value, const Config& config)
+template <Config config, int Size, scalar T, glm::qualifier Qual>
+bool Render(const char* name, glm::vec<Size, T, Qual>& value)
 {
-    return Render(name, std::span{&value[0], Size}, config);
+    return Render<config>(name, std::span{&value[0], Size});
 }
 
-template <int Size, scalar T, glm::qualifier Qual>
-bool Render(const char* name, const glm::vec<Size, T, Qual>& value, const Config& config)
+template <Config config, int Size, scalar T, glm::qualifier Qual>
+bool Render(const char* name, const glm::vec<Size, T, Qual>& value)
 {
-    return Render(name, std::span{&value[0], Size}, config);
+    return Render<config>(name, std::span{&value[0], Size});
 }
 #endif
 
-template <typename L, typename R>
-bool Render(const char* name, std::pair<L, R>& value, const Config& config)
+template <Config config, typename L, typename R>
+bool Render(const char* name, std::pair<L, R>& value)
 {
     ImGuiID guard{name};
     ImGui::Text("%s", name);
-    const bool first_changed = Render("first", value.first, config);
-    const bool second_changed = Render("second", value.second, config);
+    const bool first_changed = Render<config>("first", value.first);
+    const bool second_changed = Render<config>("second", value.second);
     return first_changed || second_changed;
 }
 
-template <typename L, typename R>
-bool Render(const char* name, const std::pair<L, R>& value, const Config& config)
+template <Config config, typename L, typename R>
+bool Render(const char* name, const std::pair<L, R>& value)
 {
     ImGuiID guard{name};
     ImGui::Text("%s", name);
-    Render("first", value.first, config);
-    Render("second", value.second, config);
+    Render<config>("first", value.first);
+    Render<config>("second", value.second);
     return false;
 }
 
-template <typename T>
-bool Render(const char* name, std::optional<T>& value, const Config& config)
+template <Config config, typename T>
+bool Render(const char* name, std::optional<T>& value)
 {
     ImGuiID guard{name};
     bool changed = false;
@@ -775,7 +713,7 @@ bool Render(const char* name, std::optional<T>& value, const Config& config)
 
         ImGui::SameLine(0, style.ItemInnerSpacing.x);
         ImGui::SetNextItemWidth(ImGui::CalcItemWidth() - (ImGui::GetItemRectSize().x + style.ItemInnerSpacing.x));
-        changed = Render(name, *value, config) || should_remove;
+        changed = Render<config>(name, *value) || should_remove;
 
         if (should_remove) {
             value = {};     // Delay this so as not to pass invalid memory to Render
@@ -792,15 +730,15 @@ bool Render(const char* name, std::optional<T>& value, const Config& config)
     return changed;
 }
 
-template <typename T>
-bool Render(const char* name, const std::optional<T>& value, const Config& config)
+template <Config config, typename T>
+bool Render(const char* name, const std::optional<T>& value)
 {
     ImGuiID guard{name};
 
     const ImGuiStyle& style = ImGui::GetStyle();
     if (value.has_value()) {
         ImGui::SetNextItemWidth(ImGui::CalcItemWidth() - (ImGui::GetItemRectSize().x + style.ItemInnerSpacing.x));
-        Render(name, *value, config);
+        Render<config>(name, *value);
     } else {
         ImGui::Text("%s: <empty>", name);
     }
@@ -819,8 +757,8 @@ consteval auto integer_sequence(std::size_t max)
     return std::define_static_array(values);
 }
 
-template <typename... Ts>
-bool Render(const char* name, std::variant<Ts...>& value, const Config& config)
+template <Config config, typename... Ts>
+bool Render(const char* name, std::variant<Ts...>& value)
 {
     ImGuiID guard{name};
     const ImGuiStyle& style = ImGui::GetStyle();
@@ -844,15 +782,15 @@ bool Render(const char* name, std::variant<Ts...>& value, const Config& config)
     ImGui::SetNextItemWidth(ImGui::CalcItemWidth() - (ImGui::GetItemRectSize().x + style.ItemInnerSpacing.x));
     template for (constexpr auto index : integer_sequence(sizeof...(Ts))) {
         if (index == value.index()) {
-            changed = Render(name, std::get<index>(value), config) || changed;
+            changed = Render<config>(name, std::get<index>(value)) || changed;
         }
     }
 
     return changed;
 }
 
-template <typename... Ts>
-bool Render(const char* name, const std::variant<Ts...>& value, const Config& config)
+template <Config config, typename... Ts>
+bool Render(const char* name, const std::variant<Ts...>& value)
 {
     ImGuiID guard{name};
     ImGui::BeginDisabled();
@@ -873,7 +811,7 @@ bool Render(const char* name, const std::variant<Ts...>& value, const Config& co
     ImGui::SetNextItemWidth(ImGui::CalcItemWidth() - (ImGui::GetItemRectSize().x + style.ItemInnerSpacing.x));
     template for (constexpr auto index : integer_sequence(sizeof...(Ts))) {
         if (index == value.index()) {
-            Render(name, std::get<index>(value), config);
+            Render<config>(name, std::get<index>(value));
         }
     }
 
@@ -881,91 +819,89 @@ bool Render(const char* name, const std::variant<Ts...>& value, const Config& co
     return false;
 }
 
-template <typename T, typename Deleter>
-bool Render(const char* name, std::unique_ptr<T, Deleter>& value, const Config& config)
+template <Config config, typename T, typename Deleter>
+bool Render(const char* name, std::unique_ptr<T, Deleter>& value)
 {
     if (value) {
-        return Render(name, *value, config);
+        return Render<config>(name, *value);
     } else {
         ImGui::Text("%s: <nullopt>", name);
         return false;
     }
 }
 
-template <typename T, typename Deleter>
-bool Render(const char* name, const std::unique_ptr<T, Deleter>& value, const Config& config)
+template <Config config, typename T, typename Deleter>
+bool Render(const char* name, const std::unique_ptr<T, Deleter>& value)
 {
     if (value) {
-        return Render(name, *value, config);
+        return Render<config>(name, *value);
     } else {
         ImGui::Text("%s: <nullopt>", name);
         return false;
     }
 }
 
-template <typename T>
-bool Render(const char* name, std::shared_ptr<T>& value, const Config& config)
+template <Config config, typename T>
+bool Render(const char* name, std::shared_ptr<T>& value)
 {
     if (value) {
-        return Render(name, *value, config);
+        return Render<config>(name, *value);
     } else {
         ImGui::Text("%s: <nullopt>", name);
         return false;
     }
 }
 
-template <typename T>
-bool Render(const char* name, const std::shared_ptr<T>& value, const Config& config)
+template <Config config, typename T>
+bool Render(const char* name, const std::shared_ptr<T>& value)
 {
     if (value) {
-        return Render(name, *value, config);
+        return Render<config>(name, *value);
     } else {
         ImGui::Text("%s: <nullopt>", name);
         return false;
     }
 }
 
-template <typename T>
-bool Render(const char* name, std::weak_ptr<T>& value, const Config& config)
+template <Config config, typename T>
+bool Render(const char* name, std::weak_ptr<T>& value)
 {
     if (value.expired()) {
         ImGui::Text("%s: <expired>", name);
         return false;
     }
-    return Render(name, value.lock(), config);
+    return Render<config>(name, value.lock());
 }
 
-template <typename T>
-bool Render(const char* name, const std::weak_ptr<T>& value, const Config& config)
+template <Config config, typename T>
+bool Render(const char* name, const std::weak_ptr<T>& value)
 {
     if (value.expired()) {
         ImGui::Text("%s: <expired>", name);
         return false;
     }
-    return Render(name, value.lock(), config);
+    return Render<config>(name, value.lock());
 }
 
-template <aggregate T>
-bool Render(const char* name, T& x, [[maybe_unused]] const Config& config)
+template <Config config, aggregate T>
+bool Render(const char* name, T& x)
 {
     ImGuiID guard{name};
     bool changed = false;
 
-    if (TreeNodeExNoDisable(name, get_tree_node_flags(config.input_flags))) {
+    if (TreeNodeExNoDisable(name)) {
         template for (constexpr auto member : nsdm_of<T>()) {
             if constexpr (!has_annotation<Ignore>(member)) {
-                // Previous config does not propagate down to the current struct (with the exception of input_flags)
-                Config new_config = get_config<member>();
-                new_config.input_flags = config.input_flags;
+                constexpr auto new_config = Config{ .self=member };
 
                 if constexpr (constexpr auto separator = fetch_annotation<Separator>(member)) {
                     ImGui::SeparatorText(separator->title);
                 }
 
                 if constexpr (has_annotation<Readonly>(member)) {
-                    Render(std::meta::identifier_of(member).data(), std::as_const(x.[:member:]), new_config);
+                    Render<new_config>(std::meta::identifier_of(member).data(), std::as_const(x.[:member:]));
                 } else {
-                    changed = Render(std::meta::identifier_of(member).data(), x.[:member:], new_config) || changed;
+                    changed = Render<new_config>(std::meta::identifier_of(member).data(), x.[:member:]) || changed;
                 }
             }
         }
@@ -976,23 +912,21 @@ bool Render(const char* name, T& x, [[maybe_unused]] const Config& config)
     return changed;
 }
 
-template <aggregate T>
-bool Render(const char* name, const T& x, [[maybe_unused]] const Config& config)
+template <Config config, aggregate T>
+bool Render(const char* name, const T& x)
 {
     ImGuiID guard{name};
 
-    if (TreeNodeExNoDisable(name, get_tree_node_flags(config.input_flags))) {
+    if (TreeNodeExNoDisable(name)) {
         template for (constexpr auto member : nsdm_of<T>()) {
             if constexpr (!has_annotation<Ignore>(member)) {
-                // Previous config does not propagate down to the current struct (with the exception of input_flags)
-                Config new_config = get_config<member>();
-                new_config.input_flags = config.input_flags;
+                constexpr auto new_config = Config{ .self=member };
 
                 if constexpr (constexpr auto separator = fetch_annotation<Separator>(member)) {
                     ImGui::SeparatorText(separator->title);
                 }
 
-                Render(std::meta::identifier_of(member).data(), x.[:member:], new_config);
+                Render<new_config>(std::meta::identifier_of(member).data(), x.[:member:]);
             }
         }
 
@@ -1002,20 +936,19 @@ bool Render(const char* name, const T& x, [[maybe_unused]] const Config& config)
     return false;
 }
 
-template <typename T>
-bool Render(const char* name, T& val, const Config& config)
+template <Config config, typename T>
+bool Render(const char* name, T& val)
 {
     static_assert(false && "not implemented for this type"); 
 }
 
 }  // namespace detail
 
-bool Input(const char* name, auto& value, ImReflInputFlags flags = 0)
+bool Input(const char* name, auto& value)
 {
-    detail::Config config;
-    config.input_flags = flags;
+    constexpr detail::Config config;
 
-    return detail::Render(name, value, config);
+    return detail::Render<config>(name, value);
 }
 
 }  // namespace ImRefl
